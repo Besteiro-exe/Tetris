@@ -153,8 +153,15 @@
 #include <chrono>
 #include <random>
 #include <mutex>
+#include <shlobj.h>
+#include <fstream>
+#include <filesystem>
 using namespace std;
 
+struct player{
+    int playerscore;
+    string playername;
+};
 
 void clear_screen() {
     cout << "\033[2J\033[1;1H";  
@@ -205,6 +212,10 @@ private:
     int alt_piece=-1;
     int current_piece;
     int rotation_state;
+    int gravity_value=1000;
+    int level=1;
+    int level_status=0;
+    
 
     int piecegrid[8][2][4]={
         {{0,0,0,0},{0,0,0,0}},{{1,1,1,1},{0,0,0,0}},{{1,0,0,0},{1,1,1,0}},{{0,0,1,0},{1,1,1,0}},{{0,1,1,0},{1,1,0,0}},{{1,1,0,0},{0,1,1,0}},{{0,1,0,0},{1,1,1,0}},{{0,1,1,0},{0,1,1,0}}
@@ -217,7 +228,7 @@ private:
         {{-2,-1},{-1,0},{0,1},{1,2}}   //3  
 /*        
         {{2,1},{1,0},{0,-1},{-1,-2}},   0   current rotation = 1   
-        {{-1,2},{0,1},{1,0},{2,-1}},    3                     0     se o state for par, soma 1, se for ímpar substrai 1; válido para todas as peças;
+        {{-1,2},{0,1},{1,0},{2,-1}},    3                     0     
         {{-2,-1},{-1,0},{0,1},{1,2}},   2                      3
         {{1,-2},{0,-1},{-1,0},{-2,1}}   1                      2
 */
@@ -253,10 +264,11 @@ private:
         {{-2,0},{-1,1},{0,0},{1,1}}
     };
 public: 
-  
+    int score=0;
+
     void print_game(){
         move_cursor_top_left();
-        cout << endl << endl << endl << endl << endl << endl;
+        cout << endl << endl << "                                                     Level:" << level << endl << "                                                     SCORE:" << score << endl << endl;
         for(int i=0;i<2;i++){
             cout << "                                                     ";
             for(int j=0;j<10;j++){
@@ -374,7 +386,7 @@ public:
     }
     void gravity(){
         while(gameon){
-            Sleep(500);
+            Sleep(gravity_value);
             lock_guard<std::mutex> lock(grid_mutex);
             if(x1<21 && x2<21 && x3<21 && x4<21 && fixed[x1+1][y1]==0 && fixed[x2+1][y2]==0 && fixed[x3+1][y3]==0 && fixed[x4+1][y4]==0){
                 grid[x1++][y1]=grid[x2++][y2]=grid[x3++][y3]=grid[x4++][y4]=0;
@@ -386,6 +398,7 @@ public:
                 fixed[x3][y3]=grid[x3][y3];
                 fixed[x4][y4]=grid[x4][y4];
                 clear_lines();
+                score+=level;
                 piece_gen(-1);
             }
             print_game();
@@ -426,6 +439,7 @@ public:
                     fixed[x3][y3]=grid[x3][y3];
                     fixed[x4][y4]=grid[x4][y4];
                     clear_lines();
+                    score+=level*2;
                     piece_gen(-1);
                     l=1;
                 }
@@ -531,7 +545,8 @@ public:
         }
     }
 
-    void clear_lines(){
+    void clear_lines(){ //a pontuação vai ser contada aqui;
+        int lines=0;
         for(int i=0;i<22;i++){
             int r=1;
             for(int j=0;j<10;j++){
@@ -545,9 +560,20 @@ public:
                     for(int z=0;z<10;z++)
                         fixed[0][z]=grid[0][z]=0;
                 }
+            lines++;
             }
         }
-    } //quando criar pontuacao, tenho de dar return à quantidade de linhas limpas(max 4);
+        if(lines!=0){
+            if(lines==4) score+=800*level;
+            else score += (100 + (lines-1)*200)*level;
+            level_status+=lines;
+            if(level_status>=10){
+                level++;
+                level_status=0;
+                gravity_value-= gravity_value*0.1;
+            }
+        }
+    } 
 
     game(){
         print_game();
@@ -618,30 +644,108 @@ public:
     }
 };
 
-class highscore{
-    public:
-    highscore(){
+
+    void highscore(player p[10]){
         int i;
         cout << endl<< endl << endl << endl << endl;
-        cout << "                                    Esta função ainda não foi implementada";
+        cout << "                                    Top Players:" << endl << endl;
+        for(int i=0 ;i<10;i++){
+            cout << "                                    " << i+1 <<":" << p[i].playername << " -> " << p[i].playerscore << endl;
+        }
         cout << endl<< endl << endl << endl << endl;
         cout << "                                                -->Go Back" << endl;
         i= inputkey();
         while(true) if(i==5) break;
     }
-};
-void aftergame(){
+
+string aftergame(int score){
     int i;
+    string name;
     cout << endl<< endl << endl;
-    cout << "you final score is XXXXX"; //tenho de criar alguma ficheiro externo para guardar os scores na appdata;
+    cout << "Your final score is " << score << endl << endl; 
+    cout << "Insert your name to save score:" <<  endl;
+    cin >> name;
     cout << endl<< endl << endl; 
     cout << "                                                -->Go to Menu" << endl;
     i= inputkey();
     while(true) if(i==5) break;
+    return name;
+}
+
+class filecontrol{
+    public:
+    player p[10];
+    filecontrol(){
+        for(int i=0;i<10; i++){
+            p[i].playerscore=0;
+            p[i].playername="---";
+            load_score(p);
+        }
+
+    }
+
+    string getappdatapath(){
+        char path[MAX_PATH];
+        SHGetFolderPathA(NULL,CSIDL_APPDATA,NULL,0,path);
+        return string(path);
+    }
+
+    void save_score(player p[10]){
+        string folder = getappdatapath() + "\\tetrisbesteiro";
+        string filename = folder + "\\score.txt";
+
+        filesystem::create_directories(folder);
+
+        ofstream file(filename);
+        if(file.is_open()){
+            for(int i=0;i<10;i++){
+                file << p[i].playername <<"\n";
+            }
+            for(int i=0;i<10;i++){
+                file << p[i].playerscore << "\n";
+            }
+            file.close();
+        }
+    }
+
+    void load_score(player p[10]){
+        string filename = getappdatapath() + "\\tetrisbesteiro\\score.txt";
+        string line;
+
+        ifstream file(filename);
+        if(file.is_open()){
+            for(int i=0;i<10;i++){
+                getline(file,line);
+                p[i].playername=line;
+            }
+            for(int i=0;i<10;i++){
+                getline(file,line);
+                p[i].playerscore=stoi(line);
+            }
+        }
+    }
+};
+
+
+
+void sort_score(player p[10],player newplayer){
+    player t,r;
+    for(int i=0;i<10;i++){
+        if(newplayer.playerscore > p[i].playerscore){
+            t=p[i];
+            p[i++]=newplayer;
+            while(i<10){
+                r=p[i];
+                p[i++]=t;
+                t=r;
+            }
+        }
+    }
 }
 
 
 int main(){
+    filecontrol f;
 inicio:
     int t;
     menu m;
@@ -649,11 +753,16 @@ inicio:
     if(m.state==0){
         game g;
         Sleep(500);
-        aftergame();
+        string name = aftergame(g.score);
+        player newplayer;
+        newplayer.playername=name;
+        newplayer.playerscore=g.score;
+        sort_score(f.p,newplayer);
+        f.save_score(f.p);
         goto inicio;
     }
-    else if(m.state==1){ //tenho de criar alguma ficheiro externo para guardar os scores na appdata;
-        highscore h;
+    else if(m.state==1){ 
+        highscore(f.p);
         goto inicio;
     }
     return 0;  
