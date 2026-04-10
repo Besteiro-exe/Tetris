@@ -1,4 +1,4 @@
-#Tetris em C++
+# Tetris em C++
 
 Este repositório contém uma recriacao do classico jogo Tetris, desenvolvida em C++ como um pequeno projeto em alguns dias, para a consola do Windows.
 
